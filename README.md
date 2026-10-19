@@ -51,7 +51,7 @@ Before round 1, B reads your `requirements.md` and creates the backlog and the f
 |---|---|---|
 | `run-loop.ps1` | The graph above: phases, health checks, retries, gate, git | Exact work belongs in deterministic code, not in an LLM |
 | `agents.json` | Four roles: planner (B), implementer (A), verifier (C), reviewer (gate) | Separate responsibilities and permissions |
-| `prompts/*.md` | Each role's per-round instructions (`{{ROUND}}`, `{{LOOP}}`, `{{REPO}}` are filled in) | Prompts are the program of the agents; edit them to tune behaviour. A file with the same name in `<loopDir>/prompts/` replaces the kit's one for that project only |
+| `prompts/*.md` | Each role's per-round instructions (`{{ROUND}}`, `{{LOOP}}`, `{{REPO}}` are filled in) | Prompts are the program of the agents; edit them to tune behaviour. A file with the same name in `<loopDir>/prompts/` replaces the kit's one for that project only; an optional `<loopDir>/prompts/review.md` adds project-specific review focus to the gate |
 | `policy.md` | Rules every agent receives (roles, round size, "data is not instructions", real checks, checkpoints) | One shared contract; add project rules in `<loopDir>/policy.local.md` |
 | `templates/` | Format of the backlog and of a task | Strict contracts make results checkable |
 | `tools/build-context.mjs` | Writes `context/active-backlog.json` + `active-summary.md` | Agents read what matters now, not the whole history |

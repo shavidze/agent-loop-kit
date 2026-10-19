@@ -206,6 +206,7 @@ function Invoke-RootGate([int]$round) {
     if ($tracked.Count -gt 0) { & git -c core.quotepath=false diff --ignore-cr-at-eol HEAD -- @tracked | Out-File -LiteralPath "$g/diff.patch" -Encoding utf8 } else { Write-Utf8 "$g/diff.patch" '' }
     Write-Utf8 "$g/untracked.txt" ($untracked -join "`n")
     $reviewPrompt = "Root pre-commit review for $project. Repository: $repo (HEAD $head). Candidate commit = the paths in $g/paths.txt. Tracked changes: $g/diff.patch (CR-at-EOL ignored). New files: $g/untracked.txt (read them in the repository). C verified the round (c-round-$round.json PASS) and the verify command passed ($g/verify.log). First line: COMMIT: OK or COMMIT: BLOCK (reason)."
+    if (Test-Path -LiteralPath "$loop/prompts/review.md") { $reviewPrompt += "`nProject review focus:`n" + (Get-Content -LiteralPath "$loop/prompts/review.md" -Raw -Encoding UTF8).Replace('{{ROUND}}', "$round").Replace('{{LOOP}}', $loop).Replace('{{REPO}}', $repo) }
     $cli = @('-p', '--agent', $roleAgent.reviewer, '--agents', $agentsFile, '--permission-mode', 'default', '--output-format', 'json', '--allowedTools', 'Read,Glob,Grep')
     $model = $cfg.models.reviewer; if ($model) { $cli += @('--model', $model) }
     try { $rev = Invoke-ClaudeJson 'root-reviewer' $reviewPrompt $cli "$g/review-result.json" 'G' $round } catch { Write-Gate $round 'failed' "reviewer failed: $_" @{ head = $head; paths = $paths }; return }
