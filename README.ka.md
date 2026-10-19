@@ -100,6 +100,7 @@ flowchart LR
 | `consultAgents` | პროექტის აგენტები (`.claude/agents`-დან), რომელთა გამოძახებაც თითოეულ როლს შეუძლია; გასაღებები: `planner`, `implementer`, `verifier` | `{"verifier": ["accessibility-auditor"]}` |
 | `models` | მოდელი თითოეული როლისთვის (ცარიელი = ნაგულისხმევი) | `{"implementer": "claude-opus-5-5"}` |
 | `commitType`, `commitScope` | commit-ის შეტყობინების ფორმატი | `"feat"`, `"web"` → `feat(web): ...` |
+| `pushTimeoutSeconds` | ერთი `git push`-ის მაქსიმალური დრო შენი pre-push hook-ების ჩათვლით; ჩავარდნისას push 60 წამში ერთხელ მეორდება | `1800` |
 | `roundLimit`, `maxLimitWaitSeconds`, `contextRestartTokens` | უსაფრთხოების ლიმიტები | `999`, `21600`, `650000` |
 
 ## სტატუსები და როგორ უნდა იმოქმედო

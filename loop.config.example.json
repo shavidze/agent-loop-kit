@@ -25,6 +25,7 @@
   "commitType": "feat",
   "commitScope": "",
   "roundLimit": 999,
+  "pushTimeoutSeconds": 1800,
   "maxLimitWaitSeconds": 21600,
   "contextRestartTokens": 650000
 }

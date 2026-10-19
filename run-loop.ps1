@@ -27,6 +27,31 @@ function Log([string]$m) { $line = "$([DateTime]::UtcNow.ToString('o')) $m"; Add
 function Write-Utf8([string]$path, [string]$text) { [System.IO.File]::WriteAllText($path, $text, $utf8) }
 function Read-Json([string]$path) { if (-not (Test-Path -LiteralPath $path)) { return $null }; try { return (Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { return $null } }
 function Set-LoopStatus([string]$phase, [int]$round, [string]$detail) { Write-Utf8 "$loop/status.json" (([pscustomobject]@{ phase = $phase; round = $round; detail = $detail; runner = 'agent-loop-kit'; updatedUtc = [DateTime]::UtcNow.ToString('o') }) | ConvertTo-Json) }
+$scriptStamp = (Get-Item -LiteralPath $PSCommandPath).LastWriteTimeUtc
+function Stop-Tree([int]$rootPid) {
+    $ErrorActionPreference = 'Continue'
+    if ($isWin) {
+        $all = @(Get-CimInstance Win32_Process); $ids = @($rootPid)
+        do { $added = @($all | Where-Object { $_.ParentProcessId -in $ids -and $_.ProcessId -notin $ids } | Select-Object -ExpandProperty ProcessId); $ids += $added } while ($added.Count -gt 0)
+        foreach ($id in ($ids | Sort-Object -Descending)) { if ($id -ne $rootPid -or (Get-Process -Id $id -ErrorAction SilentlyContinue)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue } }
+    } else { & pkill -KILL -P $rootPid 2>$null; Stop-Process -Id $rootPid -Force -ErrorAction SilentlyContinue }
+}
+function Invoke-GitTimed([string[]]$gitArgs, [string]$logFile, [int]$timeoutSec) {
+    # Output goes to files, never a pipeline: leftover hook processes (test workers) can then never hang the loop.
+    $ErrorActionPreference = 'Continue'
+    $sp = @{ FilePath = (Get-Command git).Source; ArgumentList = $gitArgs; WorkingDirectory = $repo; RedirectStandardOutput = "$logFile.out"; RedirectStandardError = "$logFile.err"; PassThru = $true }
+    if ($isWin) { $sp.WindowStyle = 'Hidden' }
+    $p = Start-Process @sp; $null = $p.Handle
+    if (-not $p.WaitForExit($timeoutSec * 1000)) { Log "git $($gitArgs -join ' ') timed out after $timeoutSec s"; $code = 124 } else { $code = $p.ExitCode }
+    Stop-Tree $p.Id
+    Write-Utf8 $logFile ((@("$logFile.out", "$logFile.err") | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Content -LiteralPath $_ -Raw -Encoding UTF8 }) -join "`n")
+    return $code
+}
+function Get-RemoteHead([string]$remote, [string]$dir) {
+    $f = "$dir/ls-remote-$($remote -replace '[^A-Za-z0-9]', '_').log"
+    if ((Invoke-GitTimed @('ls-remote', $remote, $branch) $f 120) -ne 0) { return 'unknown' }
+    return "$(Get-Content -LiteralPath $f -Raw -Encoding UTF8)".Split("`t")[0].Trim()
+}
 function Invoke-Node([string]$script) { $ErrorActionPreference = 'Continue'; try { & node "$kit/tools/$script" $loop 2>&1 | ForEach-Object { Log "${script}: $_" } } catch { Log "$script failed: $_" } }
 function Invoke-Shell([string]$command, [string]$logFile) {
     $ErrorActionPreference = 'Continue'
@@ -190,9 +215,16 @@ function Invoke-RootGate([int]$round) {
     & git commit -q -F "$g/commit-msg.txt"
     if ($LASTEXITCODE -ne 0) { & git reset -q; Write-Gate $round 'failed' 'git commit failed (hooks?)' @{ head = $head; paths = $paths }; return }
     $commit = (git rev-parse HEAD).Trim(); $remoteState = @{}; $pushFailed = @()
+    $timeout = if ($cfg.pushTimeoutSeconds) { [int]$cfg.pushTimeoutSeconds } else { 1800 }
     foreach ($r in $pushRemotes) {
-        & git push $r $branch 2>&1 | ForEach-Object { Log "push ${r}: $_" }; if ($LASTEXITCODE -ne 0) { $pushFailed += $r }
-        $remoteState[$r] = "$((git ls-remote $r $branch) -join ' ')".Split("`t")[0]
+        for ($try = 1; $try -le 2; $try++) {
+            $rc = Invoke-GitTimed @('push', $r, $branch) "$g/push-$($r -replace '[^A-Za-z0-9]', '_')-$try.log" $timeout
+            Log "push ${r} (try $try): exit $rc"
+            $remoteState[$r] = Get-RemoteHead $r $g
+            if ($rc -eq 0 -or $remoteState[$r] -eq $commit) { break }
+            if ($try -eq 1) { Start-Sleep -Seconds 60 }
+        }
+        if ($remoteState[$r] -ne $commit) { $pushFailed += $r }
     }
     if ($pushFailed.Count -gt 0) { Write-Gate $round 'committed_not_pushed' "push failed: $($pushFailed -join ', ')" @{ head = $head; commit = $commit; paths = $paths; remotes = $remoteState }; return }
     $pub = [pscustomobject]@{ round = $round; commit = $commit; base = $head; rounds = "$first-$round"; publishedUtc = [DateTime]::UtcNow.ToString('o'); remotes = $remoteState }
@@ -215,6 +247,14 @@ $finalRound = $StartRound + $RoundLimit - 1
 Log "loop start: project $project, round $StartRound phase $StartPhase, until round $finalRound"
 for ($round = $StartRound; $round -le $finalRound; $round++) {
     $first = ($round -eq $StartRound)
+    if (-not $first -and (Get-Item -LiteralPath $PSCommandPath).LastWriteTimeUtc -ne $scriptStamp) {
+        # run-loop.ps1 was updated on disk: hand over to a fresh runner at this round boundary (no manual restart needed).
+        $ps = (Get-Process -Id $PID).Path
+        $sp = @{ FilePath = $ps; ArgumentList = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Config', $Config, '-StartRound', "$round", '-StartPhase', 'A', '-RoundLimit', "$($finalRound - $round + 1)"); WorkingDirectory = $repo; RedirectStandardOutput = "$loop/loop-r$round.out.log"; RedirectStandardError = "$loop/loop-r$round.err.log"; PassThru = $true }
+        if ($isWin) { $sp.WindowStyle = 'Hidden' }
+        $p = Start-Process @sp; Set-Content -LiteralPath "$loop/loop.pid" -Value $p.Id
+        Log "run-loop.ps1 changed on disk: handed over to a fresh runner (pid $($p.Id)) at round $round"; exit 0
+    }
     if (-not $first -or $StartPhase -eq 'A') {
         [void](Ensure-Servers $round $false); Invoke-Node 'build-context.mjs'
         Set-LoopStatus 'A_IMPLEMENTING' $round 'A implements the current task.'
