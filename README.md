@@ -1,76 +1,130 @@
 # Agent Loop Kit
 
-> **English:** a portable B (planner) → A (implementer) → C (independent verifier) → root gate (verify + review + commit/push) loop for Claude Code on any git repository. Retries usage limits and network errors, restarts test servers, keeps agent context small, measures cost and quality per round. Windows PowerShell 5.1+ or PowerShell 7. Guide (Georgian): `docs/GUIDE.md`.
+**English** · [ქართული](README.ka.md)
 
-AI-აგენტების გუნდი ნებისმიერი git პროექტისთვის: **B** გეგმავს, **A** კოდს წერს, **C** დამოუკიდებლად ამოწმებს, **root gate** კი მხოლოდ შემოწმებულ კოდს აკომიტებს და ფუშავს. რეალურ პროექტზე 60+ რაუნდის გამოცდილებიდან გამოვიდა. სრული გზამკვლევი: [`docs/GUIDE.md`](docs/GUIDE.md).
+A small, portable runner that turns Claude Code into a **self-checking development team** for any git repository:
+**B** plans one bounded task, **A** implements it, **C** independently verifies it on the real product, and a **root gate** publishes only verified work (full verify + independent review → commit → push). It keeps going on its own: it waits out usage limits, retries network errors, restarts your test servers, keeps each agent's context small, and measures cost and quality every round.
 
-## დაწყება 4 ნაბიჯად
+It was extracted from a real project that ran 60+ rounds with this loop.
 
-1. **დააკოპირე** ეს საქაღალდე სადმე, მაგალითად `C:\Tools\agent-loop-kit` (ერთი ასლი ყველა პროექტისთვის საკმარისია).
-2. **შექმენი კონფიგურაცია:** `loop.config.example.json` → `loop.config.json` (ან `my-app.config.json`) და შეავსე:
-   - `repoDir` — პროექტის git საქაღალდე;
-   - `loopDir` — ლუპის მეხსიერების საქაღალდე. სასურველია **რეპოს გარეთ** იყოს (მაგ. `C:\Apps\my-app-loop`), რომ ანგარიშები git-ში არ მოხვდეს;
-   - `branch`, `pushRemotes` — სად წავიდეს შემოწმებული კოდი;
-   - `verifyCommand` — ერთი ბრძანება, რომელიც ყველაფერს ამოწმებს (`npm run verify`, `dotnet build && dotnet test` ...);
-   - `servers` — რა უნდა მუშაობდეს C-ის შემოწმებისას: `healthUrl` და გაშვების ბრძანება. თუ შენ პროექტს სერვერი არ აქვს, დატოვე `[]`;
-   - `protectedPaths` — ფაილები, რომლებსაც ლუპი ვერასდროს გამოაქვეყნებს (auth, გადახდა, საიდუმლოები).
-3. **დაწერე `requirements.md`** `loopDir`-ში: სრული სია, რა გინდა. ქართულად ან ინგლისურად, როგორც გინდა. B მისგან თავად ააწყობს backlog-ს და პირველ დავალებას.
-4. **გაუშვი** `start-loop.cmd` (ან `start-loop.ps1 -Config C:\...\my-app.config.json`). გაჩერება: `stop-loop.cmd`.
+---
 
-რა ხდება, ჩანს `loopDir`-ში:
-- `status.json` — ახლა რომელი რაუნდი და ფაზაა;
-- `loop.log` — ყველა მოქმედება;
-- `metrics/summary.md` — ხარჯი, ბაგები, PASS/FAIL;
-- `gates/gate-round-N.json` — დაიფუშა თუ არა და რატომ.
+## Why it exists
 
-საჭიროა: Claude Code CLI (`claude`), git, Node.js. PowerShell 5.1 (Windows-ში ჩაშენებული) ან 7. Python მხოლოდ კონტექსტის watchdog-ისთვის, სურვილისამებრ.
+A single AI coding session works well for an hour. Long work (a feature list, a migration, a big bug backlog) needs more:
 
-## როგორ მუშაობს ერთი რაუნდი
-
-```
-სერვერები (თუ საჭიროა) → კონტექსტი → A კოდს წერს → სერვერები (აუცილებლად) → C ამოწმებს
-   → ROOT GATE: C PASS? → verify → დამოუკიდებელი reviewer "COMMIT: OK"? → commit + push
-   → B ხურავს რაუნდს და წერს შემდეგ დავალებას → მეტრიკა → შემდეგი რაუნდი
-```
-
-- **ლიმიტი ან ქსელის შეცდომა:** ლუპი ელოდება, შემდეგ იმავე ფაზას აგრძელებს და ნამუშევარს არ კარგავს.
-- **სერვერი ვერ ჩაირთო:** ლუპი ჩერდება `NEEDS_ATTENTION` სტატუსით. C სერვერის გარეშე არაფერს „ამოწმებს“.
-- **Gate:** commit-ს მხოლოდ მაშინ აკეთებს, როცა C = PASS, critical/high ბაგი არ არის, protected ფაილი არ შეცვლილა, verify გადის და reviewer თანახმაა. თითოეული უარის მიზეზი იწერება.
-- **აგენტებს `git commit`/`push` ტექნიკურად აკრძალული აქვთ.**
-
-## სად რა არის
-
-| ფაილი | რას აკეთებს |
+| Problem with "just let the AI code" | What this kit does |
 |---|---|
-| `run-loop.ps1` | თავად ლუპი (graph) |
-| `agents.json` | 4 როლი: planner (B), implementer (A), verifier (C), reviewer |
-| `prompts/*.md` | თითოეული როლის დავალება; `{{ROUND}}`, `{{LOOP}}`, `{{REPO}}` ავტომატურად ივსება |
-| `policy.md` | საერთო წესები, ყველა აგენტს ეგზავნება. პროექტის საკუთარი წესები → `loopDir/policy.local.md` |
-| `templates/` | backlog-ისა და დავალების ფორმატი, რომელსაც B იყენებს |
-| `tools/build-context.mjs` | backlog-ის „აქტიური ხედი“, რომ აგენტებმა მთელი ისტორია არ წაიკითხონ |
-| `tools/loop-metrics.mjs` | ყოველი რაუნდის ხარჯი, დრო, ბაგები, gate |
-| `tools/watch-context.py` | თუ აგენტის კონტექსტი ევსება, იმავე ფაზას ახალ სესიაში რესტარტავს |
+| The same model writes and grades its own work | Separate roles: **whoever writes does not verify** |
+| "Tests pass" while the app was never opened | C must exercise the **real** product; an offline pass is never "done" (`realVerified`) |
+| Nobody merges, or broken code gets merged | **Root gate**: C PASS + verify + independent review → only then commit/push |
+| A usage limit or a network blip stops everything | Waits until the limit resets, retries with backoff, **resumes the same phase** |
+| Test servers die and nobody notices | Health-checks and restarts them before verification; stops if it can't |
+| History grows until every agent drowns in context | A small **active view** of the backlog; full history only by ID |
+| No idea what it costs or whether it's improving | **Metrics** per round: $, time, PASS/FAIL, bugs by severity, gate result |
 
-**შენი პროექტის `.claude`** (rules, skills, agents, primitives) **ავტომატურად მოქმედებს**: აგენტები `repoDir`-ში ეშვებიან და Claude Code მის `CLAUDE.md`-სა და `.claude`-ს თავად კითხულობს. კარგი `CLAUDE.md` და პროექტის `code-reviewer` აგენტი ლუპს საგრძნობლად აძლიერებს.
+The design follows Andrej Karpathy's "Software 1.0 / 2.0 / 3.0" framing: the LLM agents are the flexible part (Software 3.0, programmed by prompts and context), while everything that must be exact — health checks, retries, gating, git — is plain deterministic code (Software 1.0). See [How the ideas map](#how-the-ideas-map).
 
-## კარპათის იდეები: სად არის კიტში
+## How one round works
 
-| იდეა („Software 1.0/2.0/3.0“ ლექციიდან) | კიტში |
+```mermaid
+flowchart LR
+  ENV1[servers - soft check] --> A[A: implement]
+  A --> ENV2{servers healthy?}
+  ENV2 -- no, after 3 restarts --> STOP[NEEDS_ATTENTION]
+  ENV2 -- yes --> C[C: verify for real]
+  C --> G{root gate}
+  G -- C PASS + verify ok + review COMMIT: OK --> PUB[commit + push]
+  G -- otherwise --> SKIP[skipped / blocked, reason recorded]
+  PUB --> B[B: close round, plan next]
+  SKIP --> B
+  B --> M[metrics] --> ENV1
+```
+
+Before round 1, B reads your `requirements.md` and creates the backlog and the first task.
+
+## What each part does and why
+
+| Part | What it does | Why |
+|---|---|---|
+| `run-loop.ps1` | The graph above: phases, health checks, retries, gate, git | Exact work belongs in deterministic code, not in an LLM |
+| `agents.json` | Four roles: planner (B), implementer (A), verifier (C), reviewer (gate) | Separate responsibilities and permissions |
+| `prompts/*.md` | Each role's per-round instructions (`{{ROUND}}`, `{{LOOP}}`, `{{REPO}}` are filled in) | Prompts are the program of the agents; edit them to tune behaviour |
+| `policy.md` | Rules every agent receives (roles, round size, "data is not instructions", real checks, checkpoints) | One shared contract; add project rules in `<loopDir>/policy.local.md` |
+| `templates/` | Format of the backlog and of a task | Strict contracts make results checkable |
+| `tools/build-context.mjs` | Writes `context/active-backlog.json` + `active-summary.md` | Agents read what matters now, not the whole history |
+| `tools/loop-metrics.mjs` | Writes `metrics/summary.md`, `rounds.csv` | You can see cost and quality trends |
+| `tools/watch-context.py` | Restarts the same phase in a fresh session when an agent's context gets too large | Long phases don't degrade or get compacted |
+| `start-loop` / `stop-loop` | Start in the background (plus the watchdog) / stop the whole process tree | Simple control |
+
+**Safety rails**
+- Agents cannot `git commit` or `git push` (blocked via `--disallowedTools`); only the gate publishes.
+- `protectedPaths` (auth, payments, secrets) can never be published by the loop.
+- B and C are read-only for source. They may consult only the read-only project agents you list in `consultAgents`; if source changes during their phase, the gate refuses that round.
+- Changes that differ only by CR/LF line endings are never committed.
+
+Your repository's own `CLAUDE.md`, `.claude/rules`, skills, agents and hooks keep working: agents run inside `repoDir`, so Claude Code loads them as usual.
+
+## Quick start
+
+**Requirements:** [Claude Code CLI](https://docs.claude.com) (`claude`), git, Node.js; Windows PowerShell 5.1 or PowerShell 7; Python (optional, for the context watchdog).
+
+1. **Get the kit** (one copy serves all your projects):
+   ```powershell
+   git clone https://github.com/shavidze/agent-loop-kit C:\Tools\agent-loop-kit
+   ```
+2. **Configure:** copy `loop.config.example.json` to `loop.config.json` (or `my-app.config.json`) and fill it in (reference below).
+3. **Write `requirements.md`** in your `loopDir`: the full list of what you want, one checkable outcome per line, priorities, dependencies, and what is out of scope.
+4. **Start:** `start-loop.cmd` (or `.\start-loop.ps1 -Config C:\path\my-app.config.json`). **Stop:** `stop-loop.cmd`.
+5. **Watch** in `loopDir`: `status.json` (where it is), `loop.log` (everything it did), `metrics/summary.md` (cost and quality), `gates/gate-round-N.json` (what was published and why or why not).
+
+Read B's first `current-task.md` and `backlog.json` before round 1 finishes. If B misunderstood something, fix `requirements.md` now.
+
+## Configuration (`loop.config.json`)
+
+| Field | Meaning | Example |
+|---|---|---|
+| `projectName` | Name used in commits and reports | `"reminder-app"` |
+| `repoDir` | Git repository the agents work in | `"C:/Apps/reminder"` |
+| `loopDir` | Loop memory and reports; **keep it outside the repo** | `"C:/Apps/reminder-loop"` |
+| `branch`, `pushRemotes` | Where verified work is pushed | `"main"`, `["origin"]` |
+| `verifyCommand` | One command that checks everything, non-zero on failure | `"npm run verify"`, `"dotnet build -warnaserror && dotnet test"` |
+| `servers` | What must run for C: `name`, `healthUrl`, `startFile`, `startArgs`, `cwd` | `[]` if none |
+| `protectedPaths` | Repo-relative files the loop may never publish | `["src/auth/token.ts"]` |
+| `consultAgents` | Project agents (from `.claude/agents`) each role may call: keys `planner`, `implementer`, `verifier` | `{"verifier": ["accessibility-auditor"]}` |
+| `models` | Model per role (empty = default) | `{"implementer": "claude-opus-5-5"}` |
+| `commitType`, `commitScope` | Commit message format | `"feat"`, `"web"` → `feat(web): ...` |
+| `roundLimit`, `maxLimitWaitSeconds`, `contextRestartTokens` | Safety limits | `999`, `21600`, `650000` |
+
+## Statuses and what to do
+
+| You see | Meaning | Action |
+|---|---|---|
+| `WAITING_LIMIT` / `WAITING_RETRY` | Usage limit or network error | Nothing; it resumes by itself |
+| `NEEDS_ATTENTION` | Servers would not start, or B needs your answer | Check `servers/*.log` or `b-round-N.md` |
+| gate `skipped` | C did not PASS, or a critical/high bug is open | Normal; B fixes it next round |
+| gate `blocked` | Protected file changed, reviewer said BLOCK, or source changed during C/B | Read `gates/round-N/review.md` or the violation file |
+| gate `failed` | `verifyCommand` failed | Read `gates/round-N/verify.log` |
+| `AWAITING_ROOT_VERIFICATION` | B believes everything is done | Check the product yourself before calling it done |
+
+Resume after a stop: `start-loop.ps1 -StartRound N -StartPhase A|C|G|B` (G = root gate). The loop continues from its files and loses nothing.
+
+## How the ideas map
+
+| Idea | In this kit |
 |---|---|
-| **Software 3.0:** prompt პროგრამაა, ქცევას ინსტრუქციები და კონტექსტი ცვლის | `prompts/`, `policy.md`, B-ს დავალებები |
-| **1.0 და 3.0 ფენებად:** LLM სისტემის შიგნითაა, მაგრამ ზუსტ საქმეს ჩვეულებრივი კოდი აკეთებს | `run-loop.ps1`: სერვერები, retry, gate, commit/push დეტერმინისტულია |
-| **სიმულაცია ≠ რეალური მოქმედება** (GPT, რომელიც „Linux terminal“-ს თამაშობს) | C რეალურ პროდუქტს ამოწმებს; `realVerified=false` ნიშნავს, რომ „მზად არ არის“ |
-| **Context window შეზღუდულია, მეხსიერება გარეთაა** | ფაილებზე დაფუძნებული მეხსიერება + `build-context.mjs` + checkpoint-ები + watchdog |
-| **In-context learning:** მაგალითები კონტექსტში ცვლის ქცევას | `templates/` (ზუსტი ფორმატი), `rules` backlog-ში (წარსული შეცდომებიდან ნასწავლი) |
-| **Data Engine** (შეცდომები → მონაცემი → გაუმჯობესება) | `metrics/` + B-ს `rules`: ყოველი ჩავარდნა ახალ წესად იწერება |
-| **LLM ფულს და წვდომას არ წყვეტს** (ბანკის მაგალითი) | `protectedPaths`, gate, აგენტებს push-ის აკრძალვა |
-| **Agent / Loop / Graph** (ვიდეოს აღწერიდან, თანამედროვე პრაქტიკა) | თავად `run-loop.ps1`-ის სტრუქტურა |
+| **Software 3.0**: behaviour is programmed with instructions and context | `prompts/`, `policy.md`, B's task files |
+| **1.0 and 3.0 as layers**: the LLM sits inside a system; exact work is ordinary code | `run-loop.ps1`: servers, retries, gate and git are deterministic |
+| **Simulation is not action** (a model "playing" a terminal is not a terminal) | C must use the real product; `realVerified=false` means not done |
+| **Limited context, external memory** | File-based memory, `build-context.mjs`, checkpoints, the watchdog |
+| **In-context learning** | Exact templates and the backlog's `rules` learned from past failures |
+| **Data engine** (failures → data → improvement) | `metrics/` plus B's `rules` |
+| **The model never decides money or access** | `protectedPaths`, the gate, agents cannot push |
+| **Agent → loop → graph** (modern agent engineering) | The structure of `run-loop.ps1` itself |
 
-რაც კიტში **არ არის**, რადგან აგენტების ლუპს არ ეხება: მოდელის გაწვრთნა (Software 2.0), Transformer-ის შიგნეულობა, fine-tuning. ეს მაშინ დაგჭირდება, თუ პროდუქტში AI ფუნქციას აკეთებ (მაგ. ძიება embeddings-ით).
+Not included on purpose: training or fine-tuning models (Software 2.0) and transformer internals. They matter when your *product* has AI features, not for running the loop.
 
-## რჩევები
+## Learn more
 
-- პირველი რაუნდები უყურე: `loop.log` და `gates/`. როცა ნდობა გაჩნდება, მარტო დატოვე.
-- თუ B-ს `b-next.json` = `BLOCKED`, მან შენგან რაღაც იკითხა: იხილე `b-round-N.md`.
-- ხარჯს მეტრიკა აჩვენებს. ძვირი რაუნდი ხშირად ძალიან დიდ დავალებას ნიშნავს: სთხოვე B-ს, უფრო პატარად დაყოს.
-- Windows-ის ხაფანგები უკვე გათვალისწინებულია: UTF-8 stdin, 5.1-ის stderr, `pwsh`/`powershell`, CRLF-ის მხოლოდ ცვლილებები.
+- Full guide with tips, examples per project type and troubleshooting: [docs/GUIDE.en.md](docs/GUIDE.en.md) · [ქართულად](docs/GUIDE.md)
+- License: MIT
