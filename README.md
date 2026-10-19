@@ -98,6 +98,7 @@ Read B's first `current-task.md` and `backlog.json` before round 1 finishes. If 
 | `consultAgents` | Project agents (from `.claude/agents`) each role may call: keys `planner`, `implementer`, `verifier` | `{"verifier": ["accessibility-auditor"]}` |
 | `models` | Model per role (empty = default) | `{"implementer": "claude-opus-5-5"}` |
 | `commitType`, `commitScope` | Commit message format | `"feat"`, `"web"` → `feat(web): ...` |
+| `agentsFile`, `roleAgents` | optional: use your own agent definitions file and agent names per role (`planner`, `implementer`, `verifier`, `reviewer`) instead of the kit's `loop-*` agents | `{"implementer": "my-implementer"}` |
 | `pushTimeoutSeconds` | max time for one `git push`, including your pre-push hooks; the push is retried once after 60 s | `1800` |
 | `roundLimit`, `maxLimitWaitSeconds`, `contextRestartTokens` | Safety limits | `999`, `21600`, `650000` |
 

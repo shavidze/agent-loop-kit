@@ -19,7 +19,11 @@ $claudeCmd = if ($env:LOOP_CLAUDE_CMD) { $env:LOOP_CLAUDE_CMD } else { 'claude' 
 $skipServers = [bool]$env:LOOP_SKIP_SERVERS
 $isWin = ($env:OS -eq 'Windows_NT')
 foreach ($d in @($loop, "$loop/gates", "$loop/metrics", "$loop/context", "$loop/tasks", "$loop/servers")) { if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d | Out-Null } }
-foreach ($f in @('agents.json', 'policy.md')) { if (-not (Test-Path -LiteralPath "$loop/$f")) { Copy-Item -LiteralPath "$kit/$f" -Destination "$loop/$f" } }
+$agentsFile = if ($cfg.agentsFile) { $cfg.agentsFile } else { "$loop/agents.json" }
+if (-not (Test-Path -LiteralPath $agentsFile)) { Copy-Item -LiteralPath "$kit/agents.json" -Destination $agentsFile }
+if (-not (Test-Path -LiteralPath "$loop/policy.md")) { Copy-Item -LiteralPath "$kit/policy.md" -Destination "$loop/policy.md" }
+$roleAgent = @{ planner = 'loop-planner'; implementer = 'loop-implementer'; verifier = 'loop-verifier'; reviewer = 'loop-reviewer' }
+if ($cfg.roleAgents) { foreach ($k in @($roleAgent.Keys)) { if ($cfg.roleAgents.$k) { $roleAgent[$k] = "$($cfg.roleAgents.$k)" } } }
 if (-not (Test-Path -LiteralPath "$loop/templates")) { Copy-Item -LiteralPath "$kit/templates" -Destination "$loop/templates" -Recurse }
 Set-Location -LiteralPath $repo
 
@@ -59,7 +63,8 @@ function Invoke-Shell([string]$command, [string]$logFile) {
     return $LASTEXITCODE
 }
 function Expand-Prompt([string]$name, [int]$round) {
-    $t = Get-Content -LiteralPath "$kit/prompts/$name" -Raw -Encoding UTF8
+    $src = if (Test-Path -LiteralPath "$loop/prompts/$name") { "$loop/prompts/$name" } else { "$kit/prompts/$name" }
+    $t = Get-Content -LiteralPath $src -Raw -Encoding UTF8
     $t = $t.Replace('{{ROUND}}', "$round").Replace('{{NEXT}}', "$($round + 1)").Replace('{{LOOP}}', $loop).Replace('{{REPO}}', $repo).Replace('{{PROJECT}}', $project)
     $policy = Get-Content -LiteralPath "$loop/policy.md" -Raw -Encoding UTF8
     $extra = if (Test-Path -LiteralPath "$loop/policy.local.md") { "`n" + (Get-Content -LiteralPath "$loop/policy.local.md" -Raw -Encoding UTF8) } else { '' }
@@ -146,7 +151,7 @@ function Invoke-Role([string]$role, [string]$modelKey, [string]$promptName, [str
         else { $prompt += "`nPROJECT SUBAGENTS: none are configured for your role; do not start subagents." }
     } elseif ($consult.Count -gt 0) { $prompt += "`nPROJECT SUBAGENTS worth consulting when relevant: $($consult -join ', ') (plus any the project's rules require, e.g. a code reviewer for 3+ files)." }
     Write-Utf8 ($resultFile -replace '-result\.json$', '-prompt.txt') $prompt
-    $cli = @('-p', '--agent', $role, '--agents', "$loop/agents.json", '--permission-mode', 'acceptEdits', '--output-format', 'json')
+    $cli = @('-p', '--agent', $role, '--agents', $agentsFile, '--permission-mode', 'acceptEdits', '--output-format', 'json')
     $model = $cfg.models.$modelKey; if ($model) { $cli += @('--model', $model) }
     if ($canEdit) { $cli += @('--allowedTools', 'Read,Glob,Grep,Bash,Edit,Write,Agent') } else { $cli += @('--allowedTools', 'Read,Glob,Grep,Bash,Write,Agent') }
     $cli += @('--disallowedTools', 'Bash(git commit:*)', 'Bash(git push:*)')
@@ -201,7 +206,7 @@ function Invoke-RootGate([int]$round) {
     if ($tracked.Count -gt 0) { & git -c core.quotepath=false diff --ignore-cr-at-eol HEAD -- @tracked | Out-File -LiteralPath "$g/diff.patch" -Encoding utf8 } else { Write-Utf8 "$g/diff.patch" '' }
     Write-Utf8 "$g/untracked.txt" ($untracked -join "`n")
     $reviewPrompt = "Root pre-commit review for $project. Repository: $repo (HEAD $head). Candidate commit = the paths in $g/paths.txt. Tracked changes: $g/diff.patch (CR-at-EOL ignored). New files: $g/untracked.txt (read them in the repository). C verified the round (c-round-$round.json PASS) and the verify command passed ($g/verify.log). First line: COMMIT: OK or COMMIT: BLOCK (reason)."
-    $cli = @('-p', '--agent', 'loop-reviewer', '--agents', "$loop/agents.json", '--permission-mode', 'default', '--output-format', 'json', '--allowedTools', 'Read,Glob,Grep')
+    $cli = @('-p', '--agent', $roleAgent.reviewer, '--agents', $agentsFile, '--permission-mode', 'default', '--output-format', 'json', '--allowedTools', 'Read,Glob,Grep')
     $model = $cfg.models.reviewer; if ($model) { $cli += @('--model', $model) }
     try { $rev = Invoke-ClaudeJson 'root-reviewer' $reviewPrompt $cli "$g/review-result.json" 'G' $round } catch { Write-Gate $round 'failed' "reviewer failed: $_" @{ head = $head; paths = $paths }; return }
     Write-Utf8 "$g/review.md" "$($rev.result)"
@@ -236,7 +241,7 @@ function Invoke-RootGate([int]$round) {
 if (-not (Test-Path -LiteralPath "$loop/current-task.md")) {
     if (-not (Test-Path -LiteralPath "$loop/requirements.md")) { Set-LoopStatus 'NEEDS_ATTENTION' 0 "Write $loop/requirements.md (the full requirement list) first."; Log 'requirements.md missing'; exit 2 }
     Set-LoopStatus 'B_BOOTSTRAP' 0 'B turns requirements.md into backlog.json and round 1.'
-    Invoke-Role 'loop-planner' 'planner' 'B0-initial.md' 'B' 0 "$loop/b-round-0-result.json" $false
+    Invoke-Role $roleAgent.planner 'planner' 'B0-initial.md' 'B' 0 "$loop/b-round-0-result.json" $false
     Invoke-Node 'loop-metrics.mjs'
     if (-not (Test-Path -LiteralPath "$loop/current-task.md")) { Set-LoopStatus 'NEEDS_ATTENTION' 0 'B did not create current-task.md (see b-round-0.md).'; exit 2 }
     $d = Read-Json "$loop/b-next.json"; if ($d -and $d.decision -eq 'BLOCKED') { Set-LoopStatus 'NEEDS_ATTENTION' 0 $d.reason; exit 0 }
@@ -258,20 +263,20 @@ for ($round = $StartRound; $round -le $finalRound; $round++) {
     if (-not $first -or $StartPhase -eq 'A') {
         [void](Ensure-Servers $round $false); Invoke-Node 'build-context.mjs'
         Set-LoopStatus 'A_IMPLEMENTING' $round 'A implements the current task.'
-        Invoke-Role 'loop-implementer' 'implementer' 'A.md' 'A' $round "$loop/a-round-$round-result.json" $true; Invoke-Node 'loop-metrics.mjs'
+        Invoke-Role $roleAgent.implementer 'implementer' 'A.md' 'A' $round "$loop/a-round-$round-result.json" $true; Invoke-Node 'loop-metrics.mjs'
     }
     if (-not $first -or $StartPhase -in @('A', 'C')) {
         [void](Ensure-Servers $round $true); Invoke-Node 'build-context.mjs'
         Set-LoopStatus 'C_VERIFYING' $round 'C verifies independently.'
         $fp = Get-SourceFingerprint
-        Invoke-Role 'loop-verifier' 'verifier' 'C.md' 'C' $round "$loop/c-round-$round-result.json" $false; Invoke-Node 'loop-metrics.mjs'
+        Invoke-Role $roleAgent.verifier 'verifier' 'C.md' 'C' $round "$loop/c-round-$round-result.json" $false; Invoke-Node 'loop-metrics.mjs'
         Assert-ReadOnlyPhase $fp 'C' $round
     }
     if (-not $first -or $StartPhase -in @('A', 'C', 'G')) { try { Invoke-RootGate $round } catch { Write-Gate $round 'failed' "gate exception: $_" $null } }
     Invoke-Node 'build-context.mjs'
     Set-LoopStatus 'B_PLANNING_NEXT' $round 'B closes the round and plans the next.'
     $fp = Get-SourceFingerprint
-    Invoke-Role 'loop-planner' 'planner' 'B.md' 'B' $round "$loop/b-round-$round-result.json" $false; Invoke-Node 'loop-metrics.mjs'
+    Invoke-Role $roleAgent.planner 'planner' 'B.md' 'B' $round "$loop/b-round-$round-result.json" $false; Invoke-Node 'loop-metrics.mjs'
     Assert-ReadOnlyPhase $fp 'B' $round
     $d = Read-Json "$loop/b-next.json"
     if ($d.decision -eq 'COMPLETE') { Set-LoopStatus 'AWAITING_ROOT_VERIFICATION' $round 'B reports COMPLETE; verify the result yourself.'; exit 0 }
