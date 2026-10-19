@@ -64,6 +64,8 @@ Before round 1, B reads your `requirements.md` and creates the backlog and the f
 - `protectedPaths` (auth, payments, secrets) can never be published by the loop.
 - B and C are read-only for source. They may consult only the read-only project agents you list in `consultAgents`; if source changes during their phase, the gate refuses that round.
 - Changes that differ only by CR/LF line endings are never committed.
+- `git push` output goes to files and has a timeout, so a pre-push hook that leaves test workers running can never hang the loop.
+- When you update `run-loop.ps1` while the loop runs, the loop switches to the new version by itself at the next round boundary.
 
 Your repository's own `CLAUDE.md`, `.claude/rules`, skills, agents and hooks keep working: agents run inside `repoDir`, so Claude Code loads them as usual.
 
