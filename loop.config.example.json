@@ -1,0 +1,30 @@
+{
+  "projectName": "my-app",
+  "repoDir": "C:/Apps/my-app",
+  "loopDir": "C:/Apps/my-app-loop",
+  "branch": "main",
+  "pushRemotes": ["origin"],
+  "verifyCommand": "npm run verify",
+  "servers": [
+    {
+      "name": "web",
+      "healthUrl": "http://127.0.0.1:5173/",
+      "startFile": "cmd.exe",
+      "startArgs": ["/c", "npm", "run", "dev"],
+      "cwd": "C:/Apps/my-app"
+    }
+  ],
+  "protectedPaths": ["src/auth/token.ts"],
+  "models": { "planner": "", "implementer": "claude-opus-5-5", "verifier": "", "reviewer": "" },
+  "consultAgents": {
+    "planner": ["tech-lead", "product-manager"],
+    "implementer": ["code-reviewer"],
+    "verifier": ["accessibility-auditor", "code-reviewer"],
+    "reviewer": []
+  },
+  "commitType": "feat",
+  "commitScope": "",
+  "roundLimit": 999,
+  "maxLimitWaitSeconds": 21600,
+  "contextRestartTokens": 650000
+}

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "project": "<name>",
+  "current_task": "round N: <title>",
+  "done_policy": "An item is done only with C evidence from a real (not offline) check.",
+  "protected_files": [],
+  "rules": [{ "from_round": 0, "rule": "Example harness rule learned from a failure." }],
+  "items": [
+    { "id": "F-01", "title": "<requirement>", "status": "todo", "depends_on": [], "acceptance": ["<how C verifies>"], "evidence": [] }
+  ],
+  "findings": [
+    { "id": "C-R1-01", "severity": "low", "status": "open", "title": "<bug or gap>", "round": 1 }
+  ],
+  "rounds": [{ "round": 1, "task": "<title>", "status": "dispatched", "items": ["F-01"] }]
+}
