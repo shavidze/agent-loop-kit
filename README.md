@@ -2,6 +2,8 @@
 
 **English** · [ქართული](README.ka.md)
 
+> **New to this?** Start with the [beginner's guide](docs/BEGINNERS.en.md): every term, every file and a step-by-step first run, no prior knowledge needed.
+
 A small, portable runner that turns Claude Code into a **self-checking development team** for any git repository:
 **B** plans one bounded task, **A** implements it, **C** independently verifies it on the real product, and a **root gate** publishes only verified work (full verify + independent review → commit → push). It keeps going on its own: it waits out usage limits, retries network errors, restarts your test servers, keeps each agent's context small, and measures cost and quality every round.
 
@@ -126,5 +128,6 @@ Not included on purpose: training or fine-tuning models (Software 2.0) and trans
 
 ## Learn more
 
+- Beginner's guide, step by step from zero: [docs/BEGINNERS.en.md](docs/BEGINNERS.en.md) · [ქართულად](docs/BEGINNERS.md)
 - Full guide with tips, examples per project type and troubleshooting: [docs/GUIDE.en.md](docs/GUIDE.en.md) · [ქართულად](docs/GUIDE.md)
 - License: MIT
