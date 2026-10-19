@@ -103,6 +103,7 @@ flowchart LR
 | `models` | მოდელი თითოეული როლისთვის (ცარიელი = ნაგულისხმევი) | `{"implementer": "claude-opus-5-5"}` |
 | `commitType`, `commitScope` | commit-ის შეტყობინების ფორმატი | `"feat"`, `"web"` → `feat(web): ...` |
 | `agentsFile`, `roleAgents` | არასავალდებულო: kit-ის `loop-*` აგენტების ნაცვლად საკუთარი აგენტების ფაილი და აგენტის სახელი თითოეული როლისთვის (`planner`, `implementer`, `verifier`, `reviewer`) | `{"implementer": "my-implementer"}` |
+| `cleanupProcessPattern` | არასავალდებულო regex: პროცესები, რომლებსაც ტესტები ან hook-ები შეიძლება გაშვებულს ტოვებდნენ (მაგ. `"vitest"`), ლუპი verify-ის წინ და ყოველი push-ის შემდეგ თიშავს | `"vitest"` |
 | `pushTimeoutSeconds` | ერთი `git push`-ის მაქსიმალური დრო შენი pre-push hook-ების ჩათვლით; ჩავარდნისას push 60 წამში ერთხელ მეორდება | `1800` |
 | `roundLimit`, `maxLimitWaitSeconds`, `contextRestartTokens` | უსაფრთხოების ლიმიტები | `999`, `21600`, `650000` |
 

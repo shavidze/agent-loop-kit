@@ -40,6 +40,15 @@ function Stop-Tree([int]$rootPid) {
         foreach ($id in ($ids | Sort-Object -Descending)) { if ($id -ne $rootPid -or (Get-Process -Id $id -ErrorAction SilentlyContinue)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue } }
     } else { & pkill -KILL -P $rootPid 2>$null; Stop-Process -Id $rootPid -Force -ErrorAction SilentlyContinue }
 }
+function Stop-Leftovers([string]$why) {
+    # cleanupProcessPattern (optional): regex for command lines of processes that tests/hooks may leave behind, e.g. "vitest".
+    $ErrorActionPreference = 'Continue'
+    if (-not $cfg.cleanupProcessPattern) { return }
+    $pat = "$($cfg.cleanupProcessPattern)"
+    if ($isWin) { $p = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -match $pat -and $_.ProcessId -ne $PID }); foreach ($x in $p) { Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue }; $n = $p.Count }
+    else { $n = @(& pgrep -f -- $pat 2>$null).Count; if ($n -gt 0) { & pkill -KILL -f -- $pat 2>$null } }
+    if ($n -gt 0) { Log "stopped $n leftover process(es) matching '$pat' ($why)" }
+}
 function Invoke-GitTimed([string[]]$gitArgs, [string]$logFile, [int]$timeoutSec) {
     # Output goes to files, never a pipeline: leftover hook processes (test workers) can then never hang the loop.
     $ErrorActionPreference = 'Continue'
@@ -47,7 +56,7 @@ function Invoke-GitTimed([string[]]$gitArgs, [string]$logFile, [int]$timeoutSec)
     if ($isWin) { $sp.WindowStyle = 'Hidden' }
     $p = Start-Process @sp; $null = $p.Handle
     if (-not $p.WaitForExit($timeoutSec * 1000)) { Log "git $($gitArgs -join ' ') timed out after $timeoutSec s"; $code = 124 } else { $code = $p.ExitCode }
-    Stop-Tree $p.Id
+    Stop-Tree $p.Id; Stop-Leftovers "after git $($gitArgs[0])"
     Write-Utf8 $logFile ((@("$logFile.out", "$logFile.err") | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Content -LiteralPath $_ -Raw -Encoding UTF8 }) -join "`n")
     return $code
 }
@@ -201,6 +210,7 @@ function Invoke-RootGate([int]$round) {
     $prot = @($paths | Where-Object { $_ -in $protected }); if ($prot.Count -gt 0) { Write-Gate $round 'blocked' "protected file changed: $($prot -join ', ')" @{ head = $head; paths = $paths }; return }
     $g = "$loop/gates/round-$round"; if (-not (Test-Path $g)) { New-Item -ItemType Directory -Path $g | Out-Null }
     Write-Utf8 "$g/paths.txt" ($paths -join "`n")
+    Stop-Leftovers 'before verify'
     if ($cfg.verifyCommand) { $rc = Invoke-Shell $cfg.verifyCommand "$g/verify.log"; if ($rc -ne 0) { Write-Gate $round 'failed' "verify exit $rc (gates/round-$round/verify.log)" @{ head = $head; paths = $paths }; return } }
     $tracked = @($paths | Where-Object { (git ls-files -- $_) }); $untracked = @($paths | Where-Object { $_ -notin $tracked })
     if ($tracked.Count -gt 0) { & git -c core.quotepath=false diff --ignore-cr-at-eol HEAD -- @tracked | Out-File -LiteralPath "$g/diff.patch" -Encoding utf8 } else { Write-Utf8 "$g/diff.patch" '' }
