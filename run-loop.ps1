@@ -131,7 +131,7 @@ function Get-FailureKind($exitCode, $res, [string]$raw) {
 }
 function Invoke-ClaudeJson([string]$label, [string]$prompt, [string[]]$cliArgs, [string]$resultFile, [string]$phase, [int]$round) {
     $ErrorActionPreference = 'Continue'
-    $limitWaits = 0; $transient = 0; $attempt = 0
+    $limitWaits = 0; $transient = 0; $transientWaited = 0; $attempt = 0
     while ($true) {
         $attempt++
         $text = $prompt
@@ -148,9 +148,10 @@ function Invoke-ClaudeJson([string]$label, [string]$prompt, [string[]]$cliArgs, 
             Log "$label usage limit (attempt $attempt): waiting $wait s"; Set-LoopStatus 'WAITING_LIMIT' $round "$label paused by usage limit (phase $phase)."
             Wait-Until ([DateTime]::UtcNow.AddSeconds($wait)); continue
         }
-        if ($kind -eq 'transient' -and $transient -lt 4) {
-            $transient++; $wait = [Math]::Min(@(120, 300, 600, 1200)[$transient - 1], $maxWait)
-            Log "$label transient failure (attempt $attempt, exit $exitCode): retry in $wait s"; Set-LoopStatus 'WAITING_RETRY' $round "$label retry $transient/4 (phase $phase)."
+        if ($kind -eq 'transient' -and $transientWaited -lt $maxWait) {
+            # Network/API outages: back off 2, 5, 10, then every 20 minutes, until maxLimitWaitSeconds in total.
+            $transient++; $wait = [Math]::Min(@(120, 300, 600, 1200)[[Math]::Min($transient, 4) - 1], $maxWait - $transientWaited); $transientWaited += $wait
+            Log "$label transient failure (attempt $attempt, exit $exitCode): retry in $wait s"; Set-LoopStatus 'WAITING_RETRY' $round "$label retry $transient, waited $([int]($transientWaited / 60)) of $([int]($maxWait / 60)) min (phase $phase)."
             Wait-Until ([DateTime]::UtcNow.AddSeconds($wait)); continue
         }
         throw "$label failed ($kind, exit $exitCode). Inspect $resultFile"
