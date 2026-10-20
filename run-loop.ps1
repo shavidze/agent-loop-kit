@@ -17,7 +17,7 @@ if ($RoundLimit -le 0) { $RoundLimit = if ($cfg.roundLimit) { [int]$cfg.roundLim
 $maxWait = if ($env:LOOP_MAX_WAIT_SECONDS) { [int]$env:LOOP_MAX_WAIT_SECONDS } elseif ($cfg.maxLimitWaitSeconds) { [int]$cfg.maxLimitWaitSeconds } else { 21600 }
 $claudeCmd = if ($env:LOOP_CLAUDE_CMD) { $env:LOOP_CLAUDE_CMD } else { 'claude' }
 $skipServers = [bool]$env:LOOP_SKIP_SERVERS
-$isWin = ($env:OS -eq 'Windows_NT')
+$isWin = ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) -or ($env:OS -eq 'Windows_NT')
 foreach ($d in @($loop, "$loop/gates", "$loop/metrics", "$loop/context", "$loop/tasks", "$loop/servers")) { if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d | Out-Null } }
 $agentsFile = if ($cfg.agentsFile) { $cfg.agentsFile } else { "$loop/agents.json" }
 if (-not (Test-Path -LiteralPath $agentsFile)) { Copy-Item -LiteralPath "$kit/agents.json" -Destination $agentsFile }
@@ -50,7 +50,7 @@ function Stop-Leftovers([string]$why) {
     if (-not $cfg.cleanupProcessPattern) { return }
     $pat = "$($cfg.cleanupProcessPattern)"
     if ($isWin) { $p = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -match $pat -and $_.ProcessId -ne $PID }); foreach ($x in $p) { Stop-Process -Id $x.ProcessId -Force -ErrorAction SilentlyContinue }; $n = $p.Count }
-    else { $n = @(& pgrep -f -- $pat 2>$null).Count; if ($n -gt 0) { & pkill -KILL -f -- $pat 2>$null } }
+    elseif (Get-Command pgrep -ErrorAction SilentlyContinue) { $n = @(& pgrep -f -- $pat 2>$null).Count; if ($n -gt 0) { & pkill -KILL -f -- $pat 2>$null } } else { $n = 0 }
     if ($n -gt 0) { Log "stopped $n leftover process(es) matching '$pat' ($why)" }
 }
 function Invoke-GitTimed([string[]]$gitArgs, [string]$logFile, [int]$timeoutSec) {
