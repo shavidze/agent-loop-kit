@@ -32,6 +32,10 @@ function Write-Utf8([string]$path, [string]$text) { [System.IO.File]::WriteAllTe
 function Read-Json([string]$path) { if (-not (Test-Path -LiteralPath $path)) { return $null }; try { return (Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { return $null } }
 function Set-LoopStatus([string]$phase, [int]$round, [string]$detail) { Write-Utf8 "$loop/status.json" (([pscustomobject]@{ phase = $phase; round = $round; detail = $detail; runner = 'agent-loop-kit'; updatedUtc = [DateTime]::UtcNow.ToString('o') }) | ConvertTo-Json) }
 $scriptStamp = (Get-Item -LiteralPath $PSCommandPath).LastWriteTimeUtc
+function Wait-Until([DateTime]$deadlineUtc) {
+    # Waits by the wall clock in short steps: after sleep/standby the wait ends on time instead of being extended.
+    while ([DateTime]::UtcNow -lt $deadlineUtc) { Start-Sleep -Seconds ([Math]::Max(1, [Math]::Min(30, [int][Math]::Ceiling(($deadlineUtc - [DateTime]::UtcNow).TotalSeconds)))) }
+}
 function Stop-Tree([int]$rootPid) {
     $ErrorActionPreference = 'Continue'
     if ($isWin) {
@@ -142,12 +146,12 @@ function Invoke-ClaudeJson([string]$label, [string]$prompt, [string[]]$cliArgs, 
         if ($kind -eq 'limit' -and $limitWaits -lt 12) {
             $limitWaits++; $why = if ($res) { "$($res.result)" } else { $raw }; $wait = Get-LimitWaitSeconds $why
             Log "$label usage limit (attempt $attempt): waiting $wait s"; Set-LoopStatus 'WAITING_LIMIT' $round "$label paused by usage limit (phase $phase)."
-            Start-Sleep -Seconds $wait; continue
+            Wait-Until ([DateTime]::UtcNow.AddSeconds($wait)); continue
         }
         if ($kind -eq 'transient' -and $transient -lt 4) {
             $transient++; $wait = [Math]::Min(@(120, 300, 600, 1200)[$transient - 1], $maxWait)
             Log "$label transient failure (attempt $attempt, exit $exitCode): retry in $wait s"; Set-LoopStatus 'WAITING_RETRY' $round "$label retry $transient/4 (phase $phase)."
-            Start-Sleep -Seconds $wait; continue
+            Wait-Until ([DateTime]::UtcNow.AddSeconds($wait)); continue
         }
         throw "$label failed ($kind, exit $exitCode). Inspect $resultFile"
     }
