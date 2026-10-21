@@ -126,12 +126,13 @@ function Get-FailureKind($exitCode, $res, [string]$raw) {
     if ($res -and -not $res.is_error -and $exitCode -eq 0) { return 'ok' }
     $text = "$raw"; if ($res) { $text = "$($res.result) $($res.api_error_status) $($res.terminal_reason) $($res.subtype)" }
     if ($text -match 'session limit|usage limit|rate limit|hit your|\b429\b') { return 'limit' }
+    if ($text -match 'Failed to authenticate|OAuth|not logged in|Invalid API key|/login|\b401\b') { return 'auth' }
     if (-not $res -or $text -match 'ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|overloaded|Can.t reach|api_error|\b5\d\d\b|timed out') { return 'transient' }
     return 'fatal'
 }
 function Invoke-ClaudeJson([string]$label, [string]$prompt, [string[]]$cliArgs, [string]$resultFile, [string]$phase, [int]$round) {
     $ErrorActionPreference = 'Continue'
-    $limitWaits = 0; $transient = 0; $transientWaited = 0; $attempt = 0
+    $limitWaits = 0; $transient = 0; $transientWaited = 0; $authWaited = 0; $attempt = 0
     while ($true) {
         $attempt++
         $text = $prompt
@@ -147,6 +148,13 @@ function Invoke-ClaudeJson([string]$label, [string]$prompt, [string[]]$cliArgs, 
             $limitWaits++; $why = if ($res) { "$($res.result)" } else { $raw }; $wait = Get-LimitWaitSeconds $why
             Log "$label usage limit (attempt $attempt): waiting $wait s"; Set-LoopStatus 'WAITING_LIMIT' $round "$label paused by usage limit (phase $phase)."
             Wait-Until ([DateTime]::UtcNow.AddSeconds($wait)); continue
+        }
+        if ($kind -eq 'auth' -and $authWaited -lt $maxWait) {
+            # Expired Claude login: tell the user once per wait, then retry every 5 minutes until they log in again.
+            $w = [Math]::Min(300, $maxWait - $authWaited); $authWaited += $w
+            Log "$label cannot authenticate (attempt $attempt): waiting for a new Claude login; retry in $w s"
+            Set-LoopStatus 'NEEDS_LOGIN' $round "Claude login expired. On this computer run: claude, then /login. The loop retries every 5 minutes (phase $phase)."
+            Wait-Until ([DateTime]::UtcNow.AddSeconds($w)); continue
         }
         if ($kind -eq 'transient' -and $transientWaited -lt $maxWait) {
             # Network/API outages: back off 2, 5, 10, then every 20 minutes, until maxLimitWaitSeconds in total.
