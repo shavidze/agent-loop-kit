@@ -106,6 +106,7 @@ flowchart LR
 | `cleanupProcessPattern` | არასავალდებულო regex: პროცესები, რომლებსაც ტესტები ან hook-ები შეიძლება გაშვებულს ტოვებდნენ (მაგ. `"vitest"`), ლუპი verify-ის წინ და ყოველი push-ის შემდეგ თიშავს | `"vitest"` |
 | `pushTimeoutSeconds` | ერთი `git push`-ის მაქსიმალური დრო შენი pre-push hook-ების ჩათვლით; ჩავარდნისას push 60 წამში ერთხელ მეორდება | `1800` |
 | `roundLimit`, `maxLimitWaitSeconds`, `contextRestartTokens` | უსაფრთხოების ლიმიტები | `999`, `21600`, `650000` |
+| `contextRestartMode` | არასავალდებულო: როგორ აძლევს watchdog აგენტს ახალ session-ს. `agent` მხოლოდ აგენტს აჩერებს და runner იმავე ფაზას მაშინვე თავიდან იწყებს (ნაგულისხმევია Linux-სა და macOS-ზე, მუშაობს CI job-შიც; იქ `tools/watch-context.py` runner-ის გვერდით გაუშვი). `runner` მთელ runner-ს თავიდან რთავს (ნაგულისხმევია Windows-ზე) | `"agent"` |
 
 ## სტატუსები და როგორ უნდა იმოქმედო
 

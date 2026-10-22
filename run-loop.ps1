@@ -26,6 +26,7 @@ $roleAgent = @{ planner = 'loop-planner'; implementer = 'loop-implementer'; veri
 if ($cfg.roleAgents) { foreach ($k in @($roleAgent.Keys)) { if ($cfg.roleAgents.$k) { $roleAgent[$k] = "$($cfg.roleAgents.$k)" } } }
 if (-not (Test-Path -LiteralPath "$loop/templates")) { Copy-Item -LiteralPath "$kit/templates" -Destination "$loop/templates" -Recurse }
 Set-Location -LiteralPath $repo
+Set-Content -LiteralPath "$loop/loop.pid" -Value $PID
 
 function Log([string]$m) { $line = "$([DateTime]::UtcNow.ToString('o')) $m"; Add-Content -LiteralPath "$loop/loop.log" -Value $line -Encoding UTF8; Write-Host $line }
 function Write-Utf8([string]$path, [string]$text) { [System.IO.File]::WriteAllText($path, $text, $utf8) }
@@ -132,7 +133,9 @@ function Get-FailureKind($exitCode, $res, [string]$raw) {
 }
 function Invoke-ClaudeJson([string]$label, [string]$prompt, [string[]]$cliArgs, [string]$resultFile, [string]$phase, [int]$round) {
     $ErrorActionPreference = 'Continue'
-    $limitWaits = 0; $transient = 0; $transientWaited = 0; $authWaited = 0; $attempt = 0
+    $limitWaits = 0; $transient = 0; $transientWaited = 0; $authWaited = 0; $attempt = 0; $ctxRestarts = 0
+    $ctxFlag = "$loop/context-restart.flag"
+    if (Test-Path -LiteralPath $ctxFlag) { Remove-Item -LiteralPath $ctxFlag -Force -ErrorAction SilentlyContinue }
     while ($true) {
         $attempt++
         $text = $prompt
@@ -144,6 +147,11 @@ function Invoke-ClaudeJson([string]$label, [string]$prompt, [string[]]$cliArgs, 
         $kind = Get-FailureKind $exitCode $res $raw
         if ($kind -eq 'ok') { return $res }
         Copy-Item -LiteralPath $resultFile -Destination "$resultFile.attempt$attempt.json" -Force
+        if ((Test-Path -LiteralPath $ctxFlag) -and $ctxRestarts -lt 8) {
+            # tools/watch-context.py stopped the agent because its context was nearly full: same phase, fresh session, no wait.
+            $ctxRestarts++; $why = (Get-Content -LiteralPath $ctxFlag -Raw -ErrorAction SilentlyContinue); Remove-Item -LiteralPath $ctxFlag -Force -ErrorAction SilentlyContinue
+            Log "$label context restart $ctxRestarts (attempt $attempt): continuing phase $phase in a fresh session. $("$why".Trim())"; continue
+        }
         if ($kind -eq 'limit' -and $limitWaits -lt 12) {
             $limitWaits++; $why = if ($res) { "$($res.result)" } else { $raw }; $wait = Get-LimitWaitSeconds $why
             Log "$label usage limit (attempt $attempt): waiting $wait s"; Set-LoopStatus 'WAITING_LIMIT' $round "$label paused by usage limit (phase $phase)."

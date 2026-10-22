@@ -102,6 +102,7 @@ Read B's first `current-task.md` and `backlog.json` before round 1 finishes. If 
 | `cleanupProcessPattern` | optional regex: processes your tests or hooks may leave running (e.g. `"vitest"`) are stopped before verify and after each push | `"vitest"` |
 | `pushTimeoutSeconds` | max time for one `git push`, including your pre-push hooks; the push is retried once after 60 s | `1800` |
 | `roundLimit`, `maxLimitWaitSeconds`, `contextRestartTokens` | Safety limits | `999`, `21600`, `650000` |
+| `contextRestartMode` | optional: how the watchdog gives an agent a fresh session. `agent` stops only the agent and the runner starts the same phase again at once (default on Linux/macOS, works inside CI jobs; start `tools/watch-context.py` next to the runner there). `runner` restarts the whole runner (default on Windows) | `"agent"` |
 
 ## Statuses and what to do
 
